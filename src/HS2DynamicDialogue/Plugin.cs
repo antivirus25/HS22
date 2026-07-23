@@ -11,19 +11,22 @@ namespace HS2DynamicDialogue
     {
         public const string Guid = "com.antivirus25.hs2.dynamicdialogue";
         public const string Name = "HS2 Dynamic Dialogue";
-        public const string Version = "0.2.0";
+        public const string Version = "0.3.0";
 
         private ConfigEntry<bool> _enabled;
         private ConfigEntry<bool> _voiceEnabled;
         private ConfigEntry<int> _voiceEveryNReactions;
         private ConfigEntry<bool> _autoPoseEnabled;
         private ConfigEntry<float> _autoPoseInterval;
+        private ConfigEntry<float> _poseTransition;
+        private ConfigEntry<float> _dialogueCooldown;
         private DialogueEngine _dialogueEngine;
         private CharacterStateObserver _observer;
         private VoicePlayback _voicePlayback;
         private AutoPoseController _autoPose;
         private string _visibleLine;
         private float _hideAt;
+        private float _nextDialogueAt;
         private bool _stopped;
 
         private void Awake()
@@ -47,13 +50,23 @@ namespace HS2DynamicDialogue
             _autoPoseInterval = Config.Bind(
                 "Pose",
                 "IntervalSeconds",
-                15f,
+                20f,
                 "Seconds between automatic pose changes (minimum 5).");
+            _poseTransition = Config.Bind(
+                "Pose",
+                "TransitionSeconds",
+                1.5f,
+                "Natural crossfade duration between Gravure animations.");
+            _dialogueCooldown = Config.Bind(
+                "Dialogue",
+                "CooldownSeconds",
+                4f,
+                "Minimum time between dialogue reactions.");
 
-            var dialoguePath = Path.Combine(Paths.ConfigPath, "HS2DynamicDialogue", "dialogues.en.v2.json");
+            var dialoguePath = Path.Combine(Paths.ConfigPath, "HS2DynamicDialogue", "dialogues.en.v3.json");
             _dialogueEngine = new DialogueEngine(dialoguePath, Logger);
             _observer = new CharacterStateObserver(Logger);
-            _voicePlayback = new VoicePlayback(Logger);
+            _voicePlayback = new VoicePlayback(this, Logger);
             _autoPose = new AutoPoseController(Logger);
             _observer.ContextChanged += OnContextChanged;
             _autoPose.PoseChanged += OnPoseChanged;
@@ -85,7 +98,7 @@ namespace HS2DynamicDialogue
             _observer.Tick();
             _voicePlayback.Tick();
             if (_autoPoseEnabled.Value)
-                _autoPose.Tick(_autoPoseInterval.Value);
+                _autoPose.Tick(_autoPoseInterval.Value, _poseTransition.Value);
         }
 
         private void OnGUI()
@@ -93,8 +106,8 @@ namespace HS2DynamicDialogue
             if (!MakerAPI.InsideAndLoaded)
                 return;
 
-            var stopLabel = _stopped ? "START" : "STOP";
-            if (GUI.Button(new Rect(Screen.width - 125f, 20f, 105f, 42f), stopLabel))
+            var stopLabel = _stopped ? "DIALOGUE START" : "DIALOGUE STOP";
+            if (GUI.Button(new Rect((Screen.width - 170f) / 2f, 20f, 170f, 42f), stopLabel))
             {
                 _stopped = !_stopped;
                 if (_stopped)
@@ -135,18 +148,37 @@ namespace HS2DynamicDialogue
 
         private void OnContextChanged(CharacterContext context)
         {
+            if (_stopped || Time.unscaledTime < _nextDialogueAt)
+                return;
+
             var line = _dialogueEngine.Select(context);
             if (string.IsNullOrEmpty(line))
+                return;
+
+            _nextDialogueAt = Time.unscaledTime + Mathf.Max(1f, _dialogueCooldown.Value);
+            _voicePlayback.Stop();
+
+            if (_voiceEnabled.Value &&
+                _voicePlayback.TryPlay(
+                    MakerAPI.GetCharacterControl(),
+                    Mathf.Max(1, _voiceEveryNReactions.Value),
+                    delegate { ShowLine(line); },
+                    delegate { ShowLine(line); }))
+            {
+                return;
+            }
+
+            ShowLine(line);
+        }
+
+        private void ShowLine(string line)
+        {
+            if (_stopped)
                 return;
 
             _visibleLine = line;
             _hideAt = Time.unscaledTime + 5f;
             Logger.LogInfo("Dialogue: " + line);
-
-            if (_voiceEnabled.Value)
-                _voicePlayback.TryPlay(
-                    MakerAPI.GetCharacterControl(),
-                    Mathf.Max(1, _voiceEveryNReactions.Value));
         }
 
         private void OnPoseChanged()
@@ -173,6 +205,7 @@ namespace HS2DynamicDialogue
         {
             _observer.Reset();
             _autoPose.Reset();
+            _nextDialogueAt = 0f;
             Logger.LogInfo("Dynamic dialogue resumed by user.");
         }
 
