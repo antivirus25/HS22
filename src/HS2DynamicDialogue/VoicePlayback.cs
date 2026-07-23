@@ -11,6 +11,8 @@ namespace HS2DynamicDialogue
         private readonly ManualLogSource _log;
         private AIChara.ChaControl _character;
         private AudioSource _source;
+        private int _reactionCount;
+        private readonly System.Random _random = new System.Random();
         private readonly MethodInfo _updateBlendShapeVoice =
             typeof(AIChara.ChaControl).GetMethod(
                 "UpdateBlendShapeVoice",
@@ -21,8 +23,12 @@ namespace HS2DynamicDialogue
             _log = log;
         }
 
-        public void TryPlay(AIChara.ChaControl character)
+        public void TryPlay(AIChara.ChaControl character, int everyNReactions)
         {
+            _reactionCount++;
+            if (everyNReactions > 1 && _reactionCount % everyNReactions != 0)
+                return;
+
             if (character == null || character.fileParam == null ||
                 !Manager.Voice.initialized || Manager.Voice.instance == null)
                 return;
@@ -47,7 +53,7 @@ namespace HS2DynamicDialogue
                 var loader = new Manager.Voice.Loader
                 {
                     no = voiceInfo.No,
-                    pitch = character.fileParam.voicePitch,
+                    pitch = character.fileParam.voicePitch + (float)(_random.NextDouble() * 0.06 - 0.03),
                     bundle = voiceInfo.samplebundle,
                     asset = voiceInfo.sampleasset,
                     fadeTime = 0f,
@@ -81,6 +87,22 @@ namespace HS2DynamicDialogue
                 if (_updateBlendShapeVoice != null)
                     _updateBlendShapeVoice.Invoke(_character, null);
                 return;
+            }
+
+            _source = null;
+            _character = null;
+        }
+
+        public void Stop()
+        {
+            try
+            {
+                if (_character != null)
+                    Manager.Voice.Stop(_character.transform);
+            }
+            catch (Exception exception)
+            {
+                _log.LogDebug("Voice stop failed: " + exception.Message);
             }
 
             _source = null;
