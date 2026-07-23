@@ -14,8 +14,8 @@ namespace HS2DynamicDialogue
         private readonly string _databasePath;
         private readonly ManualLogSource _log;
         private readonly System.Random _random = new System.Random();
+        private readonly Queue<string> _recentLines = new Queue<string>();
         private DialogueDatabase _database = new DialogueDatabase();
-        private string _lastLine;
 
         public DialogueEngine(string databasePath, ManualLogSource log)
         {
@@ -108,6 +108,19 @@ namespace HS2DynamicDialogue
                     "It gives the outfit a different personality."
                 }
             });
+            database.rules.Add(new DialogueRule
+            {
+                id = "pose-change-default",
+                trigger = "pose_changed",
+                personality = "*",
+                priority = 1,
+                lines = new List<string>
+                {
+                    "How does this pose look?",
+                    "This angle shows the outfit more clearly.",
+                    "Let me try something a little more relaxed."
+                }
+            });
             return database;
         }
 
@@ -128,7 +141,7 @@ namespace HS2DynamicDialogue
             var candidates = matches
                 .Where(rule => rule.priority == bestPriority)
                 .SelectMany(rule => rule.lines)
-                .Where(line => !string.IsNullOrWhiteSpace(line) && line != _lastLine)
+                .Where(line => !string.IsNullOrWhiteSpace(line) && !_recentLines.Contains(line))
                 .Distinct()
                 .ToList();
 
@@ -138,8 +151,12 @@ namespace HS2DynamicDialogue
             if (candidates.Count == 0)
                 return null;
 
-            _lastLine = candidates[_random.Next(candidates.Count)];
-            return _lastLine;
+            var selected = candidates[_random.Next(candidates.Count)];
+            _recentLines.Enqueue(selected);
+            while (_recentLines.Count > 8)
+                _recentLines.Dequeue();
+
+            return selected;
         }
 
         private static bool Matches(DialogueRule rule, CharacterContext context)
