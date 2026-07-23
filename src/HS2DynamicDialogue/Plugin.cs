@@ -11,21 +11,29 @@ namespace HS2DynamicDialogue
     {
         public const string Guid = "com.antivirus25.hs2.dynamicdialogue";
         public const string Name = "HS2 Dynamic Dialogue";
-        public const string Version = "0.1.0";
+        public const string Version = "0.1.1";
 
         private ConfigEntry<bool> _enabled;
+        private ConfigEntry<bool> _voiceEnabled;
         private DialogueEngine _dialogueEngine;
         private CharacterStateObserver _observer;
+        private VoicePlayback _voicePlayback;
         private string _visibleLine;
         private float _hideAt;
 
         private void Awake()
         {
             _enabled = Config.Bind("General", "Enabled", true, "Enable dynamic dialogue.");
+            _voiceEnabled = Config.Bind(
+                "Voice",
+                "UseJapaneseSampleVoice",
+                true,
+                "Play an existing Japanese sample voice for the current personality.");
 
-            var dialoguePath = Path.Combine(Paths.ConfigPath, "HS2DynamicDialogue", "dialogues.es.json");
+            var dialoguePath = Path.Combine(Paths.ConfigPath, "HS2DynamicDialogue", "dialogues.en.json");
             _dialogueEngine = new DialogueEngine(dialoguePath, Logger);
             _observer = new CharacterStateObserver(Logger);
+            _voicePlayback = new VoicePlayback(Logger);
             _observer.ContextChanged += OnContextChanged;
 
             MakerAPI.MakerFinishedLoading += OnMakerFinishedLoading;
@@ -53,6 +61,7 @@ namespace HS2DynamicDialogue
                 return;
 
             _observer.Tick();
+            _voicePlayback.Tick();
         }
 
         private void OnGUI()
@@ -92,6 +101,9 @@ namespace HS2DynamicDialogue
             _visibleLine = line;
             _hideAt = Time.unscaledTime + 5f;
             Logger.LogInfo("Dialogue: " + line);
+
+            if (_voiceEnabled.Value)
+                _voicePlayback.TryPlay(MakerAPI.GetCharacterControl());
         }
 
         private void OnDestroy()
