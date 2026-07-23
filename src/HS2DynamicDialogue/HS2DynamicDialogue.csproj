@@ -23,8 +23,8 @@
       <HintPath>..\..\..\lib\UnityEngine.IMGUIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine.JSONSerializeModule">
-      <HintPath>..\..\..\lib\UnityEngine.JSONSerializeModule.dll</HintPath>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>..\..\..\lib\UnityEngine.AudioModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Assembly-CSharp">
@@ -35,11 +35,16 @@
       <HintPath>..\..\..\lib\HS2API.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="IL">
+      <HintPath>..\..\..\lib\IL.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.Runtime.Serialization" />
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="..\..\..\config\dialogues.es.json">
-      <LogicalName>HS2DynamicDialogue.dialogues.es.json</LogicalName>
+    <EmbeddedResource Include="..\..\..\config\dialogues.en.json">
+      <LogicalName>HS2DynamicDialogue.dialogues.en.json</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 </Project>
