@@ -20,10 +20,10 @@ target installation.
 ## Milestone sequence
 
 1. Verify that the plugin loads and logs its version.
-2. Confirm the exact Character Maker scene and HS2API events.
-3. Observe clothing and accessory changes without producing dialogue.
-4. Build a normalized `CharacterContext`.
-5. Select a contextual line and display it through a dedicated UI presenter.
+2. Confirm the exact Character Maker scene and HS2API events. (Verified with HS2API 1.41.)
+3. Observe clothing and accessory changes. (Implemented with polling plus HS2API events.)
+4. Build a normalized `CharacterContext`. (Initial version implemented.)
+5. Select a contextual line and display it through a dedicated UI presenter. (Initial IMGUI presenter implemented.)
 6. Add cooldown, repetition protection, configuration, and localization.
 
 ## Design constraints
