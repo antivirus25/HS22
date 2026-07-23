@@ -153,7 +153,7 @@ namespace HS2DynamicDialogue
 
             var selected = candidates[_random.Next(candidates.Count)];
             _recentLines.Enqueue(selected);
-            while (_recentLines.Count > 8)
+            while (_recentLines.Count > 20)
                 _recentLines.Dequeue();
 
             return selected;
