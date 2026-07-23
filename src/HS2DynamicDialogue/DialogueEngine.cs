@@ -3,8 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.Serialization.Json;
+using System.Text;
 using BepInEx.Logging;
-using UnityEngine;
 
 namespace HS2DynamicDialogue
 {
@@ -34,7 +35,7 @@ namespace HS2DynamicDialogue
                 Directory.CreateDirectory(directory);
 
             using (var stream = Assembly.GetExecutingAssembly()
-                .GetManifestResourceStream("HS2DynamicDialogue.dialogues.es.json"))
+                .GetManifestResourceStream("HS2DynamicDialogue.dialogues.en.json"))
             {
                 if (stream == null)
                 {
@@ -58,13 +59,56 @@ namespace HS2DynamicDialogue
             try
             {
                 var json = File.ReadAllText(_databasePath);
-                _database = JsonUtility.FromJson<DialogueDatabase>(json) ?? new DialogueDatabase();
+                var serializer = new DataContractJsonSerializer(typeof(DialogueDatabase));
+                using (var input = new MemoryStream(Encoding.UTF8.GetBytes(json)))
+                    _database = serializer.ReadObject(input) as DialogueDatabase;
+
+                if (_database == null || _database.rules == null || _database.rules.Count == 0)
+                {
+                    _log.LogWarning("Dialogue file contained no usable rules; loading built-in English defaults.");
+                    _database = CreateFallbackDatabase();
+                }
+
                 _log.LogInfo("Loaded " + _database.rules.Count + " dialogue rules.");
             }
             catch (Exception exception)
             {
                 _log.LogError("Could not load dialogue database: " + exception);
+                _database = CreateFallbackDatabase();
+                _log.LogInfo("Loaded " + _database.rules.Count + " built-in fallback rules.");
             }
+        }
+
+        private static DialogueDatabase CreateFallbackDatabase()
+        {
+            var database = new DialogueDatabase();
+            database.rules.Add(new DialogueRule
+            {
+                id = "clothing-change-default",
+                trigger = "clothing_changed",
+                personality = "*",
+                priority = 1,
+                lines = new List<string>
+                {
+                    "This outfit changes my whole look.",
+                    "Give me a moment to see how this feels.",
+                    "That is an interesting choice. What do you think?"
+                }
+            });
+            database.rules.Add(new DialogueRule
+            {
+                id = "accessory-change-default",
+                trigger = "accessory_changed",
+                personality = "*",
+                priority = 1,
+                lines = new List<string>
+                {
+                    "That little detail makes a surprising difference.",
+                    "I think this accessory suits me.",
+                    "It gives the outfit a different personality."
+                }
+            });
+            return database;
         }
 
         public string Select(CharacterContext context)
