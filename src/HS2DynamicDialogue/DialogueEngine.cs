@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using BepInEx.Logging;
 using UnityEngine;
 
@@ -11,7 +12,7 @@ namespace HS2DynamicDialogue
     {
         private readonly string _databasePath;
         private readonly ManualLogSource _log;
-        private readonly Random _random = new Random();
+        private readonly System.Random _random = new System.Random();
         private DialogueDatabase _database = new DialogueDatabase();
         private string _lastLine;
 
@@ -19,7 +20,31 @@ namespace HS2DynamicDialogue
         {
             _databasePath = databasePath;
             _log = log;
+            EnsureDefaultDatabase();
             Reload();
+        }
+
+        private void EnsureDefaultDatabase()
+        {
+            if (File.Exists(_databasePath))
+                return;
+
+            var directory = Path.GetDirectoryName(_databasePath);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
+            using (var stream = Assembly.GetExecutingAssembly()
+                .GetManifestResourceStream("HS2DynamicDialogue.dialogues.es.json"))
+            {
+                if (stream == null)
+                {
+                    _log.LogWarning("Embedded dialogue database was not found.");
+                    return;
+                }
+
+                using (var output = File.Create(_databasePath))
+                    stream.CopyTo(output);
+            }
         }
 
         public void Reload()
@@ -45,7 +70,7 @@ namespace HS2DynamicDialogue
         public string Select(CharacterContext context)
         {
             if (context == null)
-                throw new ArgumentNullException(nameof(context));
+                throw new ArgumentNullException("context");
 
             var matches = _database.rules
                 .Where(rule => Matches(rule, context))
