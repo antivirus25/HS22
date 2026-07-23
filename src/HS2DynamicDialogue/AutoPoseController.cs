@@ -1,4 +1,6 @@
 using System;
+using System.Reflection;
+using BepInEx.Bootstrap;
 using BepInEx.Logging;
 using KKAPI.Maker;
 using UnityEngine;
@@ -7,17 +9,26 @@ namespace HS2DynamicDialogue
 {
     public sealed class AutoPoseController
     {
+        private const string GravureGuid = "mikke.gravureAI";
+
         private readonly ManualLogSource _log;
+        private readonly System.Random _random = new System.Random();
         private float _nextChange;
+        private object _gravure;
+        private FieldInfo _groupsField;
+        private FieldInfo _groupIndexField;
+        private FieldInfo _animationIndexField;
+        private string _lastAnimation;
 
         public event Action PoseChanged;
 
         public AutoPoseController(ManualLogSource log)
         {
             _log = log;
+            ResolveGravure();
         }
 
-        public void Tick(float intervalSeconds)
+        public void Tick(float intervalSeconds, float transitionSeconds)
         {
             if (!MakerAPI.InsideAndLoaded)
                 return;
@@ -33,13 +44,78 @@ namespace HS2DynamicDialogue
                 return;
 
             _nextChange = Time.unscaledTime + interval;
+            TryChangeGravureAnimation(Mathf.Clamp(transitionSeconds, 0.25f, 4f));
+        }
+
+        private void ResolveGravure()
+        {
             try
             {
-                if (!CharaCustom.CustomBase.IsInstance())
+                BepInEx.PluginInfo info;
+                if (!Chainloader.PluginInfos.TryGetValue(GravureGuid, out info) ||
+                    info.Instance == null)
+                {
+                    _log.LogWarning("Gravure plugin was not found; automatic animation is disabled.");
+                    return;
+                }
+
+                _gravure = info.Instance;
+                var type = _gravure.GetType();
+                _groupsField = type.GetField(
+                    "gravureAnims",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                _groupIndexField = type.GetField(
+                    "animeControllerIndex1D",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                _animationIndexField = type.GetField(
+                    "gravureIndex",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+
+                _log.LogInfo("Gravure animation catalog integration enabled.");
+            }
+            catch (Exception exception)
+            {
+                _log.LogWarning("Could not connect to Gravure: " + exception.Message);
+                _gravure = null;
+            }
+        }
+
+        private void TryChangeGravureAnimation(float transitionSeconds)
+        {
+            try
+            {
+                if (_gravure == null)
+                {
+                    ResolveGravure();
+                    if (_gravure == null)
+                        return;
+                }
+
+                var groups = _groupsField.GetValue(_gravure) as string[][];
+                var groupIndex = (int)_groupIndexField.GetValue(_gravure);
+                if (groups == null || groupIndex < 0 || groupIndex >= groups.Length ||
+                    groups[groupIndex] == null || groups[groupIndex].Length == 0)
                     return;
 
-                CharaCustom.CustomBase.Instance.ChangeAnimationNext(1);
-                _log.LogDebug("Character Maker pose advanced automatically.");
+                var animations = groups[groupIndex];
+                var candidates = Array.FindAll(
+                    animations,
+                    animation => !string.IsNullOrEmpty(animation) && animation != _lastAnimation);
+                if (candidates.Length == 0)
+                    candidates = animations;
+
+                var selected = candidates[_random.Next(candidates.Length)];
+                _lastAnimation = selected;
+                _animationIndexField.SetValue(_gravure, Array.IndexOf(animations, selected));
+
+                var character = MakerAPI.GetCharacterControl();
+                if (character == null)
+                    return;
+
+                character.setAnimPtnCrossFade(selected, transitionSeconds, 0, 0f);
+                _log.LogDebug(
+                    "Crossfading to Gravure animation " + selected +
+                    " over " + transitionSeconds + " seconds.");
 
                 var handler = PoseChanged;
                 if (handler != null)
@@ -47,7 +123,7 @@ namespace HS2DynamicDialogue
             }
             catch (Exception exception)
             {
-                _log.LogWarning("Automatic pose change failed: " + exception.Message);
+                _log.LogWarning("Gravure animation change failed: " + exception.Message);
             }
         }
 
