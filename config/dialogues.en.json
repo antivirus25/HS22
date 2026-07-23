@@ -1,0 +1,30 @@
+{
+  "rules": [
+    {
+      "id": "clothing-change-default",
+      "trigger": "clothing_changed",
+      "personality": "*",
+      "tags": [],
+      "priority": 1,
+      "lines": [
+        "This outfit changes my whole look.",
+        "Give me a moment to see how this feels.",
+        "That is an interesting choice. What do you think?",
+        "I would not have chosen this myself, but it might grow on me."
+      ]
+    },
+    {
+      "id": "accessory-change-default",
+      "trigger": "accessory_changed",
+      "personality": "*",
+      "tags": [],
+      "priority": 1,
+      "lines": [
+        "That little detail makes a surprising difference.",
+        "I think this accessory suits me.",
+        "It gives the outfit a different personality.",
+        "Let me see... yes, I can work with this."
+      ]
+    }
+  ]
+}
