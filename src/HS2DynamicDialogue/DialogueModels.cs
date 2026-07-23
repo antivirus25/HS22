@@ -24,7 +24,11 @@ namespace HS2DynamicDialogue
     {
         public string Trigger { get; set; }
         public string Personality { get; set; }
-        public ISet<string> Tags { get; set; } =
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        public ISet<string> Tags { get; set; }
+
+        public CharacterContext()
+        {
+            Tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
     }
 }
