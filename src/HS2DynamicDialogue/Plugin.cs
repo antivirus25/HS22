@@ -11,14 +11,13 @@ namespace HS2DynamicDialogue
     {
         public const string Guid = "com.antivirus25.hs2.dynamicdialogue";
         public const string Name = "HS2 Dynamic Dialogue";
-        public const string Version = "0.4.0";
+        public const string Version = "0.5.0";
 
         private ConfigEntry<bool> _enabled;
         private ConfigEntry<bool> _voiceEnabled;
         private ConfigEntry<int> _voiceEveryNReactions;
         private ConfigEntry<bool> _autoPoseEnabled;
         private ConfigEntry<float> _autoPoseInterval;
-        private ConfigEntry<float> _poseTransition;
         private ConfigEntry<float> _dialogueCooldown;
         private DialogueEngine _dialogueEngine;
         private CharacterStateObserver _observer;
@@ -53,11 +52,6 @@ namespace HS2DynamicDialogue
                 "IntervalSeconds",
                 20f,
                 "Seconds between automatic pose changes (minimum 5).");
-            _poseTransition = Config.Bind(
-                "Pose",
-                "TransitionSeconds",
-                1.5f,
-                "Natural crossfade duration between Gravure animations.");
             _dialogueCooldown = Config.Bind(
                 "Dialogue",
                 "CooldownSeconds",
@@ -100,7 +94,7 @@ namespace HS2DynamicDialogue
             _observer.Tick();
             _voicePlayback.Tick();
             if (_autoPoseEnabled.Value)
-                _autoPose.Tick(_autoPoseInterval.Value, _poseTransition.Value);
+                _autoPose.Tick(_autoPoseInterval.Value);
         }
 
         private void OnGUI()
@@ -132,6 +126,7 @@ namespace HS2DynamicDialogue
         {
             _observer.Reset();
             _autoPose.Reset();
+            _autoPose.RestoreVanillaPose();
             _facialExpressions.Reset();
             _stopped = false;
         }
