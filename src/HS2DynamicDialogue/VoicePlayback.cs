@@ -182,7 +182,7 @@ namespace HS2DynamicDialogue
             }
 
             _recentAssets.Enqueue(assetName);
-            while (_recentAssets.Count > 12)
+            while (_recentAssets.Count > 30)
                 _recentAssets.Dequeue();
 
             _character = character;
@@ -226,21 +226,23 @@ namespace HS2DynamicDialogue
 
         private static List<string> FindAdvVoiceBundles(int personality)
         {
-            var folder = Path.Combine(
+            var personalityFolder = Path.Combine(
                 Paths.GameRootPath,
                 "abdata",
                 "sound",
                 "data",
                 "pcm",
-                "c" + personality.ToString("00"),
-                "adv");
+                "c" + personality.ToString("00"));
 
             var result = new List<string>();
-            foreach (var name in new[] { "30.unity3d", "50.unity3d" })
+            foreach (var category in new[] { "adv", "etc" })
             {
-                var path = Path.Combine(folder, name);
-                if (File.Exists(path))
-                    result.Add(path);
+                foreach (var name in new[] { "30.unity3d", "50.unity3d" })
+                {
+                    var path = Path.Combine(personalityFolder, category, name);
+                    if (File.Exists(path))
+                        result.Add(path);
+                }
             }
 
             return result;
