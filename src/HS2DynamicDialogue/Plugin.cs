@@ -11,7 +11,7 @@ namespace HS2DynamicDialogue
     {
         public const string Guid = "com.antivirus25.hs2.dynamicdialogue";
         public const string Name = "HS2 Dynamic Dialogue";
-        public const string Version = "0.3.0";
+        public const string Version = "0.4.0";
 
         private ConfigEntry<bool> _enabled;
         private ConfigEntry<bool> _voiceEnabled;
@@ -24,6 +24,7 @@ namespace HS2DynamicDialogue
         private CharacterStateObserver _observer;
         private VoicePlayback _voicePlayback;
         private AutoPoseController _autoPose;
+        private FacialExpressionController _facialExpressions;
         private string _visibleLine;
         private float _hideAt;
         private float _nextDialogueAt;
@@ -39,8 +40,8 @@ namespace HS2DynamicDialogue
                 "Play an existing Japanese sample voice for the current personality.");
             _voiceEveryNReactions = Config.Bind(
                 "Voice",
-                "PlayEveryNReactions",
-                3,
+                "PlayEveryNReactionsV2",
+                1,
                 "Play Japanese sample audio every N dialogue reactions.");
             _autoPoseEnabled = Config.Bind(
                 "Pose",
@@ -63,11 +64,12 @@ namespace HS2DynamicDialogue
                 4f,
                 "Minimum time between dialogue reactions.");
 
-            var dialoguePath = Path.Combine(Paths.ConfigPath, "HS2DynamicDialogue", "dialogues.en.v3.json");
+            var dialoguePath = Path.Combine(Paths.ConfigPath, "HS2DynamicDialogue", "dialogues.en.v4.json");
             _dialogueEngine = new DialogueEngine(dialoguePath, Logger);
             _observer = new CharacterStateObserver(Logger);
             _voicePlayback = new VoicePlayback(this, Logger);
             _autoPose = new AutoPoseController(Logger);
+            _facialExpressions = new FacialExpressionController(Logger);
             _observer.ContextChanged += OnContextChanged;
             _autoPose.PoseChanged += OnPoseChanged;
 
@@ -130,6 +132,7 @@ namespace HS2DynamicDialogue
         {
             _observer.Reset();
             _autoPose.Reset();
+            _facialExpressions.Reset();
             _stopped = false;
         }
 
@@ -138,6 +141,7 @@ namespace HS2DynamicDialogue
             _observer.Reset();
             _autoPose.Reset();
             _voicePlayback.Stop();
+            _facialExpressions.Reset();
             _visibleLine = null;
         }
 
@@ -148,7 +152,16 @@ namespace HS2DynamicDialogue
 
         private void OnContextChanged(CharacterContext context)
         {
-            if (_stopped || Time.unscaledTime < _nextDialogueAt)
+            if (_stopped)
+                return;
+
+            var character = MakerAPI.GetCharacterControl();
+            var timidExposed = context.Tags.Contains("timid") &&
+                (context.Tags.Contains("underwear") || context.Tags.Contains("nude"));
+            _autoPose.SetCoveringMode(timidExposed);
+            _facialExpressions.Apply(character, context);
+
+            if (Time.unscaledTime < _nextDialogueAt)
                 return;
 
             var line = _dialogueEngine.Select(context);
@@ -160,7 +173,7 @@ namespace HS2DynamicDialogue
 
             if (_voiceEnabled.Value &&
                 _voicePlayback.TryPlay(
-                    MakerAPI.GetCharacterControl(),
+                    character,
                     Mathf.Max(1, _voiceEveryNReactions.Value),
                     delegate { ShowLine(line); },
                     delegate { ShowLine(line); }))
@@ -184,13 +197,9 @@ namespace HS2DynamicDialogue
         private void OnPoseChanged()
         {
             var character = MakerAPI.GetCharacterControl();
-            OnContextChanged(new CharacterContext
-            {
-                Trigger = "pose_changed",
-                Personality = character == null || character.fileParam == null
-                    ? "*"
-                    : "personality:" + character.fileParam.personality
-            });
+            OnContextChanged(CharacterStateObserver.BuildContext(
+                "pose_changed",
+                character));
         }
 
         private void StopEverything()
@@ -198,6 +207,7 @@ namespace HS2DynamicDialogue
             _visibleLine = null;
             _voicePlayback.Stop();
             _autoPose.Reset();
+            _facialExpressions.Reset();
             Logger.LogInfo("Dynamic dialogue stopped by user.");
         }
 
@@ -221,6 +231,8 @@ namespace HS2DynamicDialogue
                 _autoPose.PoseChanged -= OnPoseChanged;
             if (_voicePlayback != null)
                 _voicePlayback.Stop();
+            if (_facialExpressions != null)
+                _facialExpressions.Reset();
         }
     }
 }
