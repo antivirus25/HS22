@@ -1,6 +1,4 @@
 using System;
-using System.Reflection;
-using BepInEx.Bootstrap;
 using BepInEx.Logging;
 using KKAPI.Maker;
 using UnityEngine;
@@ -9,17 +7,10 @@ namespace HS2DynamicDialogue
 {
     public sealed class AutoPoseController
     {
-        private const string GravureGuid = "mikke.gravureAI";
-
         private readonly ManualLogSource _log;
-        private readonly System.Random _random = new System.Random();
         private float _nextChange;
-        private object _gravure;
-        private FieldInfo _groupsField;
-        private FieldInfo _groupIndexField;
-        private FieldInfo _animationIndexField;
-        private FieldInfo _groupNamesField;
-        private string _lastAnimation;
+        private float _pendingSince;
+        private bool _changePending;
         private bool _covering;
 
         public event Action PoseChanged;
@@ -27,14 +18,29 @@ namespace HS2DynamicDialogue
         public AutoPoseController(ManualLogSource log)
         {
             _log = log;
-            ResolveGravure();
         }
 
-        public void Tick(float intervalSeconds, float transitionSeconds)
+        public void RestoreVanillaPose()
         {
-            if (!MakerAPI.InsideAndLoaded)
+            if (!MakerAPI.InsideAndLoaded || !CharaCustom.CustomBase.IsInstance())
                 return;
-            if (_covering)
+
+            try
+            {
+                // This goes through the Maker's own pose loader. It restores the matching
+                // controller, MotionIK data and animation for the current character.
+                CharaCustom.CustomBase.Instance.ChangeAnimationNo(0, true);
+                _log.LogInfo("Original Character Maker pose controller restored.");
+            }
+            catch (Exception exception)
+            {
+                _log.LogWarning("Could not restore the original Maker pose: " + exception.Message);
+            }
+        }
+
+        public void Tick(float intervalSeconds)
+        {
+            if (!MakerAPI.InsideAndLoaded || _covering)
                 return;
 
             var interval = Mathf.Max(5f, intervalSeconds);
@@ -44,103 +50,47 @@ namespace HS2DynamicDialogue
                 return;
             }
 
-            if (Time.unscaledTime < _nextChange)
+            if (!_changePending && Time.unscaledTime >= _nextChange)
+            {
+                _changePending = true;
+                _pendingSince = Time.unscaledTime;
+            }
+
+            if (!_changePending)
                 return;
 
+            // Wait for the end of the current loop when possible. This avoids changing
+            // pose in the middle of a hand or body movement.
+            if (!IsNearAnimationBoundary() && Time.unscaledTime - _pendingSince < 4f)
+                return;
+
+            AdvanceOriginalPose();
+            _changePending = false;
             _nextChange = Time.unscaledTime + interval;
-            TryChangeGravureAnimation(Mathf.Clamp(transitionSeconds, 0.25f, 4f));
         }
 
-        private void ResolveGravure()
+        private static bool IsNearAnimationBoundary()
         {
-            try
-            {
-                BepInEx.PluginInfo info;
-                if (!Chainloader.PluginInfos.TryGetValue(GravureGuid, out info) ||
-                    info.Instance == null)
-                {
-                    _log.LogWarning("Gravure plugin was not found; automatic animation is disabled.");
-                    return;
-                }
+            var character = MakerAPI.GetCharacterControl();
+            if (character == null || character.animBody == null)
+                return true;
 
-                _gravure = info.Instance;
-                var type = _gravure.GetType();
-                _groupsField = type.GetField(
-                    "gravureAnims",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
-                _groupIndexField = type.GetField(
-                    "animeControllerIndex1D",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
-                _animationIndexField = type.GetField(
-                    "gravureIndex",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
-                _groupNamesField = type.GetField(
-                    "AnimGroups",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
-
-                _log.LogInfo("Gravure animation catalog integration enabled.");
-            }
-            catch (Exception exception)
-            {
-                _log.LogWarning("Could not connect to Gravure: " + exception.Message);
-                _gravure = null;
-            }
+            var state = character.animBody.GetCurrentAnimatorStateInfo(0);
+            var cycle = state.normalizedTime - Mathf.Floor(state.normalizedTime);
+            return cycle >= 0.88f || cycle <= 0.04f;
         }
 
-        private void TryChangeGravureAnimation(float transitionSeconds)
+        private void AdvanceOriginalPose()
         {
+            if (!CharaCustom.CustomBase.IsInstance())
+                return;
+
             try
             {
-                if (_gravure == null)
-                {
-                    ResolveGravure();
-                    if (_gravure == null)
-                        return;
-                }
-
-                var groups = _groupsField.GetValue(_gravure) as string[][];
-                var groupNames = _groupNamesField.GetValue(_gravure) as string[];
-                var groupIndex = (int)_groupIndexField.GetValue(_gravure);
-                if (groups == null || groupIndex < 0 || groupIndex >= groups.Length ||
-                    groups[groupIndex] == null || groups[groupIndex].Length == 0)
-                    return;
-
-                var groupName = groupNames != null && groupIndex < groupNames.Length
-                    ? groupNames[groupIndex]
-                    : string.Empty;
-                if (!string.Equals(groupName, "Gravure", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(groupName, "Pose", StringComparison.OrdinalIgnoreCase))
-                {
-                    _log.LogDebug(
-                        "Skipping unsafe automatic Gravure group: " + groupName + ".");
-                    return;
-                }
-
-                var animations = groups[groupIndex];
-                var candidates = Array.FindAll(
-                    animations,
-                    animation => !string.IsNullOrEmpty(animation) && animation != _lastAnimation);
-                if (candidates.Length == 0)
-                    candidates = animations;
-
-                var selected = candidates[_random.Next(candidates.Length)];
-                _lastAnimation = selected;
-                _animationIndexField.SetValue(_gravure, Array.IndexOf(animations, selected));
-
-                var character = MakerAPI.GetCharacterControl();
-                if (character == null)
-                    return;
-
-                var position = character.transform.position;
-                var rotation = character.transform.rotation;
-                if (character.animBody != null)
-                    character.animBody.applyRootMotion = false;
-                character.setAnimPtnCrossFade(selected, transitionSeconds, 0, 0f);
-                character.transform.position = position;
-                character.transform.rotation = rotation;
-                _log.LogDebug(
-                    "Crossfading to Gravure animation " + selected +
-                    " over " + transitionSeconds + " seconds.");
+                // ChangeAnimationNext uses HS2's category 500/501 list and reloads the
+                // official controller and MotionIK data. No Gravure animation is touched.
+                CharaCustom.CustomBase.Instance.ChangeAnimationNext(1);
+                _log.LogDebug("Advanced to the next original Character Maker pose.");
 
                 var handler = PoseChanged;
                 if (handler != null)
@@ -148,13 +98,15 @@ namespace HS2DynamicDialogue
             }
             catch (Exception exception)
             {
-                _log.LogWarning("Gravure animation change failed: " + exception.Message);
+                _log.LogWarning("Original Maker pose change failed: " + exception.Message);
             }
         }
 
         public void Reset()
         {
             _nextChange = 0f;
+            _pendingSince = 0f;
+            _changePending = false;
             _covering = false;
         }
 
@@ -165,29 +117,27 @@ namespace HS2DynamicDialogue
 
             _covering = enabled;
             _nextChange = 0f;
-            if (!enabled || !CharaCustom.CustomBase.IsInstance())
+            _changePending = false;
+            if (!CharaCustom.CustomBase.IsInstance())
                 return;
 
             try
             {
-                var character = MakerAPI.GetCharacterControl();
-                if (character == null)
-                    return;
-
-                var position = character.transform.position;
-                var rotation = character.transform.rotation;
-                if (character.animBody != null)
-                    character.animBody.applyRootMotion = false;
-
-                // Pose 37 is the hands-in-front pose visible in the user's Maker setup.
-                CharaCustom.CustomBase.Instance.ChangeAnimationNo(37, false);
-                character.transform.position = position;
-                character.transform.rotation = rotation;
-                _log.LogInfo("Timid covering pose activated.");
+                if (enabled)
+                {
+                    // Original female Maker pose 37 resembles covering the front of the body.
+                    CharaCustom.CustomBase.Instance.ChangeAnimationNo(37, false);
+                    _log.LogInfo("Timid covering pose activated from the original pose list.");
+                }
+                else
+                {
+                    CharaCustom.CustomBase.Instance.ChangeAnimationNext(1);
+                    _log.LogInfo("Timid covering pose released.");
+                }
             }
             catch (Exception exception)
             {
-                _log.LogWarning("Could not activate timid covering pose: " + exception.Message);
+                _log.LogWarning("Could not change the timid covering pose: " + exception.Message);
             }
         }
     }
