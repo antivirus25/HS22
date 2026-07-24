@@ -18,7 +18,9 @@ namespace HS2DynamicDialogue
         private FieldInfo _groupsField;
         private FieldInfo _groupIndexField;
         private FieldInfo _animationIndexField;
+        private FieldInfo _groupNamesField;
         private string _lastAnimation;
+        private bool _covering;
 
         public event Action PoseChanged;
 
@@ -31,6 +33,8 @@ namespace HS2DynamicDialogue
         public void Tick(float intervalSeconds, float transitionSeconds)
         {
             if (!MakerAPI.InsideAndLoaded)
+                return;
+            if (_covering)
                 return;
 
             var interval = Mathf.Max(5f, intervalSeconds);
@@ -70,6 +74,9 @@ namespace HS2DynamicDialogue
                 _animationIndexField = type.GetField(
                     "gravureIndex",
                     BindingFlags.Instance | BindingFlags.NonPublic);
+                _groupNamesField = type.GetField(
+                    "AnimGroups",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
 
                 _log.LogInfo("Gravure animation catalog integration enabled.");
             }
@@ -92,10 +99,22 @@ namespace HS2DynamicDialogue
                 }
 
                 var groups = _groupsField.GetValue(_gravure) as string[][];
+                var groupNames = _groupNamesField.GetValue(_gravure) as string[];
                 var groupIndex = (int)_groupIndexField.GetValue(_gravure);
                 if (groups == null || groupIndex < 0 || groupIndex >= groups.Length ||
                     groups[groupIndex] == null || groups[groupIndex].Length == 0)
                     return;
+
+                var groupName = groupNames != null && groupIndex < groupNames.Length
+                    ? groupNames[groupIndex]
+                    : string.Empty;
+                if (!string.Equals(groupName, "Gravure", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(groupName, "Pose", StringComparison.OrdinalIgnoreCase))
+                {
+                    _log.LogDebug(
+                        "Skipping unsafe automatic Gravure group: " + groupName + ".");
+                    return;
+                }
 
                 var animations = groups[groupIndex];
                 var candidates = Array.FindAll(
@@ -112,7 +131,13 @@ namespace HS2DynamicDialogue
                 if (character == null)
                     return;
 
+                var position = character.transform.position;
+                var rotation = character.transform.rotation;
+                if (character.animBody != null)
+                    character.animBody.applyRootMotion = false;
                 character.setAnimPtnCrossFade(selected, transitionSeconds, 0, 0f);
+                character.transform.position = position;
+                character.transform.rotation = rotation;
                 _log.LogDebug(
                     "Crossfading to Gravure animation " + selected +
                     " over " + transitionSeconds + " seconds.");
@@ -130,6 +155,40 @@ namespace HS2DynamicDialogue
         public void Reset()
         {
             _nextChange = 0f;
+            _covering = false;
+        }
+
+        public void SetCoveringMode(bool enabled)
+        {
+            if (_covering == enabled)
+                return;
+
+            _covering = enabled;
+            _nextChange = 0f;
+            if (!enabled || !CharaCustom.CustomBase.IsInstance())
+                return;
+
+            try
+            {
+                var character = MakerAPI.GetCharacterControl();
+                if (character == null)
+                    return;
+
+                var position = character.transform.position;
+                var rotation = character.transform.rotation;
+                if (character.animBody != null)
+                    character.animBody.applyRootMotion = false;
+
+                // Pose 37 is the hands-in-front pose visible in the user's Maker setup.
+                CharaCustom.CustomBase.Instance.ChangeAnimationNo(37, false);
+                character.transform.position = position;
+                character.transform.rotation = rotation;
+                _log.LogInfo("Timid covering pose activated.");
+            }
+            catch (Exception exception)
+            {
+                _log.LogWarning("Could not activate timid covering pose: " + exception.Message);
+            }
         }
     }
 }
