@@ -40,6 +40,11 @@ namespace HS2DynamicDialogue
             var builder = new StringBuilder();
             foreach (var part in parts)
                 builder.Append(part == null ? -1 : part.id).Append('|');
+            if (character.fileStatus != null && character.fileStatus.clothesState != null)
+            {
+                foreach (var state in character.fileStatus.clothesState)
+                    builder.Append(state).Append('|');
+            }
 
             var fingerprint = builder.ToString();
             if (_lastClothingFingerprint == null)
@@ -52,9 +57,7 @@ namespace HS2DynamicDialogue
                 return;
 
             _lastClothingFingerprint = fingerprint;
-            Publish("clothing_changed", character.fileParam == null
-                ? "*"
-                : "personality:" + character.fileParam.personality);
+            Publish("clothing_changed", character);
         }
 
         public void PublishAccessoryChanged()
@@ -63,9 +66,7 @@ namespace HS2DynamicDialogue
                 return;
 
             var character = MakerAPI.GetCharacterControl();
-            Publish("accessory_changed", character == null || character.fileParam == null
-                ? "*"
-                : "personality:" + character.fileParam.personality);
+            Publish("accessory_changed", character);
         }
 
         public void Reset()
@@ -74,18 +75,78 @@ namespace HS2DynamicDialogue
             _nextPoll = 0f;
         }
 
-        private void Publish(string trigger, string personality)
+        public static CharacterContext BuildContext(
+            string trigger,
+            AIChara.ChaControl character)
+        {
+            var context = new CharacterContext
+            {
+                Trigger = trigger,
+                Personality = character == null || character.fileParam == null
+                    ? "*"
+                    : "personality:" + character.fileParam.personality
+            };
+
+            if (character == null)
+                return context;
+
+            AddWardrobeTag(context, character);
+            if (IsTimid(character))
+                context.Tags.Add("timid");
+
+            return context;
+        }
+
+        private static void AddWardrobeTag(
+            CharacterContext context,
+            AIChara.ChaControl character)
+        {
+            var states = character.fileStatus == null
+                ? null
+                : character.fileStatus.clothesState;
+            if (states == null || states.Length < 4)
+            {
+                context.Tags.Add("dressed");
+                return;
+            }
+
+            var outerOff = states[0] >= 2 && states[1] >= 2;
+            var underwearOff = states[2] >= 2 && states[3] >= 2;
+            if (outerOff && underwearOff)
+                context.Tags.Add("nude");
+            else if (outerOff)
+                context.Tags.Add("underwear");
+            else
+                context.Tags.Add("dressed");
+        }
+
+        private static bool IsTimid(AIChara.ChaControl character)
+        {
+            if (character.fileParam == null || !Manager.Voice.initialized)
+                return false;
+
+            VoiceInfo.Param info;
+            if (!Manager.Voice.infoTable.TryGetValue(
+                character.fileParam.personality,
+                out info) || info == null)
+                return false;
+
+            var name = ((info.Personality ?? string.Empty) + " " +
+                        (info.EnUS ?? string.Empty)).ToLowerInvariant();
+            return name.Contains("timid") || name.Contains("shy");
+        }
+
+        private void Publish(string trigger, AIChara.ChaControl character)
         {
             var handler = ContextChanged;
             if (handler == null)
                 return;
 
-            _log.LogDebug("Context changed: " + trigger + ", " + personality);
-            handler(new CharacterContext
-            {
-                Trigger = trigger,
-                Personality = personality
-            });
+            var context = BuildContext(trigger, character);
+            _log.LogDebug(
+                "Context changed: " + trigger + ", " + context.Personality +
+                ", tags=" + string.Join(",", context.Tags.ToArray()));
+            handler(context);
         }
     }
 }
